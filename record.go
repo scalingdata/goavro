@@ -33,7 +33,6 @@ import (
 type Record struct {
 	Name      string
 	Fields    []*recordField
-	fieldIndex map[string]*recordField
 	aliases   []string
 	doc       string
 	n         *name
@@ -42,19 +41,18 @@ type Record struct {
 }
 
 func (r Record) getField(fieldName string) (*recordField, error) {
-	field, ok := r.fieldIndex[fieldName]
-	if ok {
-		return field, nil
+	for _, field := range r.Fields {
+		if field.Name == fieldName {
+			return field, nil
+		}
 	}
 	fn, _ := newName(nameName(fieldName), nameNamespace(r.n.ns))
-	
-	field, ok = r.fieldIndex[fn.n]
-	if ok {
-		return field, nil
+	for _, field := range r.Fields {
+		if field.Name == fn.n {
+			return field, nil
+		}
 	}
-	
 	return nil, fmt.Errorf("no such field: %s", fieldName)
-
 }
 
 // Get returns the datum of the specified Record field.
@@ -143,14 +141,12 @@ func NewRecord(setters ...RecordSetter) (*Record, error) {
 	}
 
 	record.Fields = make([]*recordField, len(fields))
-	record.fieldIndex = make(map[string]*recordField)
 	for i, field := range fields {
 		rf, err := newRecordField(field, recordFieldEnclosingNamespace(ns))
 		if err != nil {
 			return nil, newCodecBuildError("record", err)
 		}
 		record.Fields[i] = rf
-		record.fieldIndex[rf.Name] = rf
 	}
 
 	// fields optional to the avro spec
