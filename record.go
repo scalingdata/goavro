@@ -33,6 +33,7 @@ import (
 type Record struct {
 	Name      string
 	Fields    []*recordField
+	fieldIndex map[string]*recordField
 	aliases   []string
 	doc       string
 	n         *name
@@ -40,44 +41,48 @@ type Record struct {
 	schemaMap map[string]interface{}
 }
 
+func (r Record) getField(fieldName string) (*recordField, error) {
+	field, ok := r.fieldIndex[fieldName]
+	if ok {
+		return field, nil
+	}
+	fn, _ := newName(nameName(fieldName), nameNamespace(r.n.ns))
+	
+	field, ok = r.fieldIndex[fn.n]
+	if ok {
+		return field, nil
+	}
+	
+	return nil, fmt.Errorf("no such field: %s", fieldName)
+
+}
+
 // Get returns the datum of the specified Record field.
 func (r Record) Get(fieldName string) (interface{}, error) {
-	// qualify fieldName searches based on record namespace
-	fn, _ := newName(nameName(fieldName), nameNamespace(r.n.ns))
-
-	for _, field := range r.Fields {
-		if field.Name == fn.n {
-			return field.Datum, nil
-		}
+	field, err := r.getField(fieldName)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("no such field: %s", fieldName)
+	return field.Datum, nil
 }
 
 // GetFieldSchema returns the schema of the specified Record field.
 func (r Record) GetFieldSchema(fieldName string) (interface{}, error) {
-	// qualify fieldName searches based on record namespace
-	fn, _ := newName(nameName(fieldName), nameNamespace(r.n.ns))
-
-	for _, field := range r.Fields {
-		if field.Name == fn.n {
-			return field.schema, nil
-		}
+	field, err := r.getField(fieldName)
+	if err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("no such field: %s", fieldName)
+	return field.schema, nil
 }
 
 // Set updates the datum of the specified Record field.
 func (r Record) Set(fieldName string, value interface{}) error {
-	// qualify fieldName searches based on record namespace
-	fn, _ := newName(nameName(fieldName), nameNamespace(r.n.ns))
-
-	for _, field := range r.Fields {
-		if field.Name == fn.n {
-			field.Datum = value
-			return nil
-		}
+	field, err := r.getField(fieldName)
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("no such field: %s", fieldName)
+	field.Datum = value
+	return nil
 }
 
 // String returns a string representation of the Record.
@@ -138,12 +143,14 @@ func NewRecord(setters ...RecordSetter) (*Record, error) {
 	}
 
 	record.Fields = make([]*recordField, len(fields))
+	record.fieldIndex = make(map[string]*recordField)
 	for i, field := range fields {
 		rf, err := newRecordField(field, recordFieldEnclosingNamespace(ns))
 		if err != nil {
 			return nil, newCodecBuildError("record", err)
 		}
 		record.Fields[i] = rf
+		record.fieldIndex[rf.Name] = rf
 	}
 
 	// fields optional to the avro spec
