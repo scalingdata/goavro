@@ -19,7 +19,7 @@
 package main
 
 import (
-	"github.com/linkedin/goavro"
+	"github.com/scalingdata/goavro"
 	"io"
 	"log"
 	"os"
