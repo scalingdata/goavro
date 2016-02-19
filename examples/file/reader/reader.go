@@ -20,7 +20,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/linkedin/goavro"
+	"github.com/scalingdata/goavro"
 	"io"
 	"log"
 	"os"
