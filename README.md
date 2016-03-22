@@ -30,7 +30,7 @@ strong emphasis on what a Reader and Writer are. Namely, it is bad
 form to define an interface which shares the same name but uses a
 different method signature. In other words, all Reader interfaces
 should effectively mirror an `io.Reader`, and all Writer interfaces
-should mirror an `io.Writer`. Adherance to this standard is essential
+should mirror an `io.Writer`. Adherence to this standard is essential
 to keep libraries easy to use.
 
 An `io.Reader` reads data from the stream specified at object creation
@@ -42,7 +42,7 @@ other words, an Avro reader puts the schema first, whereas an
 `io.Reader` puts the stream first.
 
 To support an Avro reader being able to read from multiple streams,
-it's API must be different and incompatible with `io.Reader` interface
+its API must be different and incompatible with `io.Reader` interface
 from the Go standard. Instead, an Avro reader looks more like the
 Unmarshal functionality provided by the Go `encoding/json` library.
 
@@ -240,7 +240,7 @@ does have a few limitations that have yet to be implemented.
 
 The Avro specification allows an implementation to optionally map a
 writer's schema to a reader's schema using aliases. Although goavro
-can complile schemas with aliases, it does not yet implement this
+can compile schemas with aliases, it does not yet implement this
 feature.
 
 ### JSON Encoding
@@ -264,6 +264,16 @@ abstraction above Avro Data Serialization format, Kafka's use of Avro
 is a layer of abstraction that also sits above Avro Data Serialization
 format, but has its own schema. Like Avro Object Container Files, this
 has been implemented but removed until the API can be improved.
+
+### Default maximum length of `String` and `Bytes` fields
+
+Because the way we currently decode String and Bytes fields is entirely
+stateless an Avro file could specify that a String or Bytes field is
+extremely large and there would be no way for the decode function to know
+anything was wrong. Instead of checking the available system memory on
+every decode operation, we've instead decided to opt for what we believe
+to be a sane default (`math.MaxInt32` or ~2.2GB) but leave that variable exported so that a user
+can change the variable if they need to exceed this limit.
 
 ## License
 

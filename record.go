@@ -24,6 +24,19 @@ import (
 	"strings"
 )
 
+// ErrNoSuchField is returned when attempt to Get a field that does not exist in a Record.
+type ErrNoSuchField struct {
+	field, path string
+}
+
+// Error returns the string representation of an ErrNoSuchField error.
+func (e ErrNoSuchField) Error() string {
+	if e.path != "" {
+		return fmt.Sprintf("no such field: %q in %q", e.field, e.path)
+	}
+	return fmt.Sprintf("no such field: %q", e.field)
+}
+
 // Record is an abstract data type used to hold data corresponding to
 // an Avro record. Wherever an Avro schema specifies a record, this
 // library's Decode method will return a Record initialized to the
@@ -38,6 +51,7 @@ type Record struct {
 	n         *name
 	ens       string
 	schemaMap map[string]interface{}
+	pedantic  bool
 }
 
 func (r Record) getField(fieldName string) (*recordField, error) {
@@ -46,7 +60,7 @@ func (r Record) getField(fieldName string) (*recordField, error) {
 			return field, nil
 		}
 	}
-	return nil, fmt.Errorf("no such field: %s", fieldName)
+	return nil, ErrNoSuchField{field: fieldName}
 }
 
 // GetQualified returns the datum of the specified Record field, without attempting to qualify the name
@@ -90,7 +104,6 @@ func (r Record) SetQualified(qualifiedName string, value interface{}) error {
 	}
 	field.Datum = value
 	return nil
-
 }
 
 // Set updates the datum of the specified Record field.
@@ -156,7 +169,7 @@ func NewRecord(setters ...RecordSetter) (*Record, error) {
 		return nil, newCodecBuildError("record", "record requires one or more fields")
 	}
 	fields, ok := val.([]interface{})
-	if !ok || len(fields) == 0 {
+	if !ok || (len(fields) == 0 && record.pedantic) {
 		return nil, newCodecBuildError("record", "record fields ought to be non-empty array")
 	}
 
@@ -204,21 +217,31 @@ func recordSchemaRaw(schema interface{}) RecordSetter {
 	}
 }
 
+// RecordPedantic specifies pedantic handling, and will cause NewRecord to signal an error if
+// various harmless schema violations occur.
+func RecordPedantic() RecordSetter {
+	return func(r *Record) error {
+		r.pedantic = true
+		return nil
+	}
+}
+
 // RecordSchema specifies the schema of the record to
 // create. Schema must be a JSON string.
 func RecordSchema(recordSchemaJSON string) RecordSetter {
+	var schema map[string]interface{}
+	err := json.Unmarshal([]byte(recordSchemaJSON), &schema)
+	if err != nil {
+		err = newCodecBuildError("record", err)
+	}
+
 	return func(r *Record) error {
-		var schema interface{}
-		err := json.Unmarshal([]byte(recordSchemaJSON), &schema)
 		if err != nil {
-			return newCodecBuildError("record", err)
+			return err
+		} else {
+			r.schemaMap = schema
+			return nil
 		}
-		var ok bool
-		r.schemaMap, ok = schema.(map[string]interface{})
-		if !ok {
-			return newCodecBuildError("record", "expected: map[string]interface{}; received: %T", schema)
-		}
-		return nil
 	}
 }
 
@@ -285,6 +308,12 @@ func newRecordField(schema interface{}, setters ...recordFieldSetter) (*recordFi
 		return nil, newCodecBuildError("record field", "ought to have type key")
 	}
 	rf.schema = schema
+
+	// Null can only ever be null
+	if typeName == "null" {
+		rf.defval = nil
+		rf.hasDefault = true
+	}
 
 	// fields optional to the avro spec
 

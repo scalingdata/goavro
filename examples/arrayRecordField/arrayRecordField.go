@@ -21,7 +21,7 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/scalingdata/goavro"
+	"github.com/linkedin/goavro"
 	"log"
 )
 
@@ -56,22 +56,15 @@ func init() {
 {
   "type": "record",
   "name": "comments",
-  "doc:": "A basic schema for storing blog comments",
   "namespace": "com.example",
+  "doc:": "List of users",
   "fields": [
     {
-      "name": "user",
-      "type": %s
-    },
-    {
-      "doc": "The content of the user's message",
-      "type": "string",
-      "name": "comment"
-    },
-    {
-      "doc": "Unix epoch time in milliseconds",
-      "type": "long",
-      "name": "timestamp"
+      "type": {
+        "items": %s,
+        "type": "array"
+      },
+      "name": "users"
     }
   ]
 }
@@ -87,18 +80,30 @@ func init() {
 }
 
 func main() {
+	var innerRecords []interface{}
+
 	// If we want to encode data, we need to put it in an actual
 	// goavro.Record instance corresponding to the schema we wish
 	// to encode against.
 	//
 	// NewRecord will create a goavro.Record instance
 	// corresponding to the specified schema.
+
 	innerRecord, err := goavro.NewRecord(goavro.RecordSchema(innerSchema))
 	if err != nil {
 		log.Fatal(err)
 	}
 	innerRecord.Set("account", "Aquaman")
 	innerRecord.Set("creationDate", int64(1082196484))
+	innerRecords = append(innerRecords, innerRecord)
+
+	innerRecord, err = goavro.NewRecord(goavro.RecordSchema(innerSchema))
+	if err != nil {
+		log.Fatal(err)
+	}
+	innerRecord.Set("account", "Super Girl")
+	innerRecord.Set("creationDate", int64(1442240878))
+	innerRecords = append(innerRecords, innerRecord)
 
 	// We create both an innerRecord and an outerRecord.
 	outerRecord, err := goavro.NewRecord(goavro.RecordSchema(outerSchema))
@@ -108,10 +113,7 @@ func main() {
 	// innerRecord is a completely seperate record instance from
 	// outerRecord. Once we have an innerRecord instance it can be
 	// assigned to the appropriate Datum item of the outerRecord.
-	outerRecord.Set("user", innerRecord)
-	// Other fields are set on the outerRecord.
-	outerRecord.Set("comment", "The Atlantic is oddly cold this morning!")
-	outerRecord.Set("timestamp", int64(1427255074))
+	outerRecord.Set("users", innerRecords)
 
 	// Encode the outerRecord into a bytes.Buffer
 	bb := new(bytes.Buffer)
@@ -121,11 +123,11 @@ func main() {
 	// Compare encoded bytes against the expected bytes.
 	actual := bb.Bytes()
 	expected := []byte(
-		"\x0eAquaman" + // account
+		"\x04" + // array of two elements
+			"\x0eAquaman" + // first account
 			"\x88\x88\x88\x88\x08" + // creationDate
-			"\x50" + // 50 hex == 80 dec variable length integer encoded == 40 -> string is 40 characters long
-			"The Atlantic is oddly cold this morning!" + // comment
-			"\xc4\xbc\x91\xd1\x0a") // timestamp
+			"\x14Super Girl" + // second account
+			"\xdc\xe5\xb6\xdf\x0a\x00") // creationDate
 	if bytes.Compare(actual, expected) != 0 {
 		log.Printf("Actual: %#v; Expected: %#v", actual, expected)
 	}

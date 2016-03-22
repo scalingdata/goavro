@@ -19,10 +19,14 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"github.com/scalingdata/goavro"
+	"github.com/linkedin/goavro"
+	"io"
 	"log"
+	"math/rand"
+	"os"
+	"os/signal"
+	"time"
 )
 
 const innerSchema = `
@@ -40,7 +44,7 @@ const innerSchema = `
     {
       "type": "long",
       "name": "creationDate",
-      "doc": "Unix epoch time in milliseconds"
+      "doc": "Unix epoch time"
     }
   ]
 }
@@ -69,7 +73,7 @@ func init() {
       "name": "comment"
     },
     {
-      "doc": "Unix epoch time in milliseconds",
+      "doc": "Unix epoch time in nanoseconds",
       "type": "long",
       "name": "timestamp"
     }
@@ -87,6 +91,44 @@ func init() {
 }
 
 func main() {
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	go dumpWriter(pw, codec)
+	dumpReader(pr)
+}
+
+func dumpWriter(w io.Writer, codec goavro.Codec) {
+	fw, err := codec.NewWriter(
+		goavro.BlockSize(5),             // queue up no more than 5 items
+		goavro.BlockTick(3*time.Second), // but flush at least every 3 seconds
+		goavro.Compression(goavro.CompressionDeflate),
+		goavro.ToWriter(w))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer fw.Close()
+
+	sigs := make(chan os.Signal)
+	signal.Notify(sigs)
+	defer func() {
+		signal.Stop(sigs)
+	}()
+
+writeLoop:
+	for {
+		select {
+		case <-time.After(time.Duration(rand.Intn(500)) * time.Millisecond):
+			sendRecord(fw)
+		case <-sigs:
+			break writeLoop
+		}
+	}
+}
+
+func sendRecord(fw *goavro.Writer) {
 	// If we want to encode data, we need to put it in an actual
 	// goavro.Record instance corresponding to the schema we wish
 	// to encode against.
@@ -111,33 +153,27 @@ func main() {
 	outerRecord.Set("user", innerRecord)
 	// Other fields are set on the outerRecord.
 	outerRecord.Set("comment", "The Atlantic is oddly cold this morning!")
-	outerRecord.Set("timestamp", int64(1427255074))
+	outerRecord.Set("timestamp", int64(time.Now().UnixNano()))
+	fw.Write(outerRecord)
+}
 
-	// Encode the outerRecord into a bytes.Buffer
-	bb := new(bytes.Buffer)
-	if err = codec.Encode(bb, outerRecord); err != nil {
+func dumpReader(r io.Reader) {
+	fr, err := goavro.NewReader(goavro.FromReader(r))
+	if err != nil {
 		log.Fatal(err)
 	}
-	// Compare encoded bytes against the expected bytes.
-	actual := bb.Bytes()
-	expected := []byte(
-		"\x0eAquaman" + // account
-			"\x88\x88\x88\x88\x08" + // creationDate
-			"\x50" + // 50 hex == 80 dec variable length integer encoded == 40 -> string is 40 characters long
-			"The Atlantic is oddly cold this morning!" + // comment
-			"\xc4\xbc\x91\xd1\x0a") // timestamp
-	if bytes.Compare(actual, expected) != 0 {
-		log.Printf("Actual: %#v; Expected: %#v", actual, expected)
-	}
-	// Let's decode the blob and print the output in JSON format
-	// using goavro.Record's String() method.
-	decoded, err := codec.Decode(bytes.NewReader(actual))
-	fmt.Println(decoded)
-	// we only need to perform type assertion if we want to access inside
-	record := decoded.(*goavro.Record)
-	fmt.Println("Record Name:", record.Name)
-	fmt.Println("Record Fields:")
-	for i, field := range record.Fields {
-		fmt.Println(" field", i, field.Name, ":", field.Datum)
+	defer func() {
+		if err := fr.Close(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	for fr.Scan() {
+		datum, err := fr.Read()
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		fmt.Println(datum)
 	}
 }

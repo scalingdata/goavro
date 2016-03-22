@@ -102,6 +102,7 @@ type Codec interface {
 	Decoder
 	Encoder
 	Schema() string
+	NewWriter(...WriterSetter) (*Writer, error)
 }
 
 // CodecSetter functions are those those which are used to modify a
@@ -213,6 +214,28 @@ func (c codec) Schema() string {
 	return c.schema
 }
 
+// NewWriter creates a new Writer that encodes using the given Codec.
+//
+// The following two code examples produce identical results:
+//
+//    // method 1:
+//    fw, err := codec.NewWriter(goavro.ToWriter(w))
+//    if err != nil {
+//    	log.Fatal(err)
+//    }
+//    defer fw.Close()
+//
+//    // method 2:
+//    fw, err := goavro.NewWriter(goavro.ToWriter(w), goavro.UseCodec(codec))
+//    if err != nil {
+//    	log.Fatal(err)
+//    }
+//    defer fw.Close()
+func (c codec) NewWriter(setters ...WriterSetter) (*Writer, error) {
+	setters = append(setters, UseCodec(c))
+	return NewWriter(setters...)
+}
+
 var (
 	nullCodec, booleanCodec, intCodec, longCodec, floatCodec, doubleCodec, bytesCodec, stringCodec *codec
 )
@@ -295,7 +318,7 @@ func (st symtab) buildString(enclosingNamespace, typeName string, schema interfa
 	default:
 		t, err := newName(nameName(typeName), nameEnclosingNamespace(enclosingNamespace))
 		if err != nil {
-			return nil, newCodecBuildError(typeName, "could not normalize name: %s", enclosingNamespace, typeName)
+			return nil, newCodecBuildError(typeName, "could not normalize name: %q: %q: %s", enclosingNamespace, typeName, err)
 		}
 		c, ok := st[t.n]
 		if !ok {
@@ -334,7 +357,7 @@ func (st symtab) makeUnionCodec(enclosingNamespace string, schema interface{}) (
 	for idx, unionMemberSchema := range schemaArray {
 		c, err := st.buildCodec(enclosingNamespace, unionMemberSchema)
 		if err != nil {
-			return nil, newCodecBuildError(friendlyName, "member ought to be decodable: %v", err)
+			return nil, newCodecBuildError(friendlyName, "member ought to be decodable: %s", err)
 		}
 		allowedNames[idx] = c.nm.n
 		indexToDecoder[idx] = c.df
@@ -361,7 +384,7 @@ func (st symtab) makeUnionCodec(enclosingNamespace string, schema interface{}) (
 			}
 			index := int(idx)
 			if index < 0 || index >= len(indexToDecoder) {
-				return nil, newEncoderError(friendlyName, "index must be between 0 and %d", enclosingNamespace, len(indexToDecoder)-1)
+				return nil, newEncoderError(friendlyName, "index must be between 0 and %d; read index: %d", len(indexToDecoder)-1, index)
 			}
 			return indexToDecoder[index](r)
 		},

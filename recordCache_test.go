@@ -16,13 +16,13 @@
 //  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 // implied.
 
-package main
+package goavro
 
 import (
 	"bytes"
 	"fmt"
-	"github.com/scalingdata/goavro"
 	"log"
+	"testing"
 )
 
 const innerSchema = `
@@ -46,12 +46,9 @@ const innerSchema = `
 }
 `
 
-var (
-	outerSchema string
-	codec       goavro.Codec
-)
-
-func init() {
+func TestRecordNestedField(t *testing.T) {
+	var codec Codec
+	var outerSchema string
 	outerSchema = fmt.Sprintf(`
 {
   "type": "record",
@@ -80,30 +77,28 @@ func init() {
 	var err error
 	// If you want speed, create the codec one time for each
 	// schema and reuse it to create multiple Writer instances.
-	codec, err = goavro.NewCodec(outerSchema)
+	codec, err = NewCodec(outerSchema)
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
-}
 
-func main() {
 	// If we want to encode data, we need to put it in an actual
-	// goavro.Record instance corresponding to the schema we wish
+	// Record instance corresponding to the schema we wish
 	// to encode against.
 	//
-	// NewRecord will create a goavro.Record instance
+	// NewRecord will create a Record instance
 	// corresponding to the specified schema.
-	innerRecord, err := goavro.NewRecord(goavro.RecordSchema(innerSchema))
+	innerRecord, err := NewRecord(RecordSchema(innerSchema))
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 	innerRecord.Set("account", "Aquaman")
 	innerRecord.Set("creationDate", int64(1082196484))
 
 	// We create both an innerRecord and an outerRecord.
-	outerRecord, err := goavro.NewRecord(goavro.RecordSchema(outerSchema))
+	outerRecord, err := NewRecord(RecordSchema(outerSchema))
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 	// innerRecord is a completely seperate record instance from
 	// outerRecord. Once we have an innerRecord instance it can be
@@ -116,7 +111,7 @@ func main() {
 	// Encode the outerRecord into a bytes.Buffer
 	bb := new(bytes.Buffer)
 	if err = codec.Encode(bb, outerRecord); err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 	// Compare encoded bytes against the expected bytes.
 	actual := bb.Bytes()
@@ -130,14 +125,24 @@ func main() {
 		log.Printf("Actual: %#v; Expected: %#v", actual, expected)
 	}
 	// Let's decode the blob and print the output in JSON format
-	// using goavro.Record's String() method.
+	// using Record's String() method.
 	decoded, err := codec.Decode(bytes.NewReader(actual))
-	fmt.Println(decoded)
+
 	// we only need to perform type assertion if we want to access inside
-	record := decoded.(*goavro.Record)
-	fmt.Println("Record Name:", record.Name)
-	fmt.Println("Record Fields:")
-	for i, field := range record.Fields {
-		fmt.Println(" field", i, field.Name, ":", field.Datum)
+	record, ok := decoded.(*Record)
+	if !ok {
+		t.Fatal(ErrNotRecord{decoded})
+	}
+
+	rc, err := NewRecordCache(record, '/')
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := rc.Get("com.example.user/com.example.account")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, ok := account.(string); !ok || s != "Aquaman" {
+		t.Errorf("Actual: %#v; Expected: %#v", account, "Aquaman")
 	}
 }
