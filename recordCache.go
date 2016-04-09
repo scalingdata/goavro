@@ -62,7 +62,7 @@ func (rc *RecordCache) Get(name string) (interface{}, error) {
 	var parent interface{} = rc.top
 	var parentName, childName string
 
-	if index := strings.LastIndexByte(name, rc.delim); index >= 0 {
+	if index := strings.LastIndex(name, string([]byte{rc.delim})); index >= 0 {
 		parentName, childName = name[:index], name[index+1:]
 		parent, err = rc.Get(parentName)
 		if err != nil {
